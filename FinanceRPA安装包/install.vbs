@@ -1,0 +1,99 @@
+'==========================================================================
+' FinanceRPA 加载宏 — 一键安装脚本
+'
+' 用法: 双击运行
+' 功能: 自动注册 WPS 加载宏，配置信任设置
+'==========================================================================
+Option Explicit
+
+Dim fso, app, wshShell
+Dim srcDir, xlamPath, startupPath, regKey
+Dim resp
+
+Set fso = CreateObject("Scripting.FileSystemObject")
+srcDir = fso.GetParentFolderName(WScript.ScriptFullName)
+xlamPath = srcDir & "\FinanceRPA.xlam"
+
+If Not fso.FileExists(xlamPath) Then
+    MsgBox "FinanceRPA.xlam not found!" & vbCrLf & _
+           "Path: " & xlamPath, vbCritical, "Error"
+    WScript.Quit(1)
+End If
+
+resp = MsgBox("FinanceRPA 加载宏安装" & vbCrLf & vbCrLf & _
+              "将执行以下操作:" & vbCrLf & _
+              "  1. 配置 WPS 信任设置" & vbCrLf & _
+              "  2. 复制加载宏到启动目录" & vbCrLf & _
+              "  3. 注册加载宏" & vbCrLf & vbCrLf & _
+              "点击 Yes 开始安装", vbYesNo + vbQuestion, "Install")
+If resp = vbNo Then WScript.Quit(0)
+
+' === Step 1: 设置信任 VBA 工程 ===
+Set wshShell = CreateObject("WScript.Shell")
+regKey = "HKCU\Software\Kingsoft\Office\ET\Security\AccessVBOM"
+On Error Resume Next
+wshShell.RegWrite regKey, 1, "REG_DWORD"
+If Err.Number <> 0 Then
+    WScript.Echo "Warning: Cannot set registry key"
+    Err.Clear
+End If
+On Error GoTo 0
+
+' === Step 2: 创建 WPS COM 对象 ===
+On Error Resume Next
+Set app = CreateObject("Ket.Application")
+If app Is Nothing Then Set app = CreateObject("ET.Application")
+If app Is Nothing Then Set app = CreateObject("Excel.Application")
+On Error GoTo 0
+
+If app Is Nothing Then
+    MsgBox "Cannot create WPS Application." & vbCrLf & _
+           "Please make sure WPS is installed.", vbCritical, "Error"
+    WScript.Quit(1)
+End If
+
+app.Visible = False
+app.DisplayAlerts = False
+
+' === Step 3: 复制到启动文件夹 ===
+startupPath = app.StartupPath
+
+If Len(startupPath) > 0 And fso.FolderExists(startupPath) Then
+    If fso.FileExists(startupPath & "\FinanceRPA.xlam") Then
+        fso.DeleteFile startupPath & "\FinanceRPA.xlam", True
+    End If
+    fso.CopyFile xlamPath, startupPath & "\FinanceRPA.xlam", True
+End If
+
+' === Step 4: 注册加载宏 ===
+Dim installed, ai
+installed = False
+On Error Resume Next
+For Each ai In app.AddIns
+    If InStr(LCase(ai.Name), "financerpa") > 0 Then
+        ai.Installed = True
+        installed = True
+        Exit For
+    End If
+Next
+
+If Not installed Then
+    app.AddIns.Add xlamPath, True
+    For Each ai In app.AddIns
+        If InStr(LCase(ai.Name), "financerpa") > 0 Then
+            ai.Installed = True
+            installed = True
+            Exit For
+        End If
+    Next
+End If
+On Error GoTo 0
+
+app.Quit
+
+MsgBox "安装完成！" & vbCrLf & vbCrLf & _
+       "请打开 WPS 表格验证安装。" & vbCrLf & _
+       "查看功能区是否有「加载项」选项卡。" & vbCrLf & vbCrLf & _
+       "如果看不到按钮:" & vbCrLf & _
+       "  右键功能区 → 自定义功能区 → 勾选「加载项」", _
+       vbInformation, "安装完成"
